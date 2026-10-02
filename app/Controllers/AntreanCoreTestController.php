@@ -164,14 +164,25 @@ class AntreanCoreTestController extends BaseController
         return $this->response->setJSON($result);
     }
 
-    public function bookingBesok()
-{
-    $result = $this->antreanService->ambilAntrean(
-        5, // BAPENDA
-        'BIASA',
-        date('Y-m-d', strtotime('+1 day'))
-    );
+    public function bookingBesok($jenisAntrean)
+    {
+        $result = $this->antreanService->ambilAntrean(
+            5,              // BAPENDA
+            $jenisAntrean,  // BIASA / PRIORITAS
+            date('Y-m-d', strtotime('+1 day'))
+        );
 
-    return $this->response->setJSON($result);
-}
+        return $this->response->setJSON($result);
+    }
+
+    public function booking($tanggal, $jenisAntrean)
+    {
+        $result = $this->antreanService->ambilAntrean(
+            5,              // BAPENDA
+            $jenisAntrean,  // BIASA / PRIORITAS
+            $tanggal
+        );
+
+        return $this->response->setJSON($result);
+    }
 }

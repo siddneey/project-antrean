@@ -6,7 +6,7 @@ use CodeIgniter\Model;
 
 class antreanModel extends Model
 {
-    protected $DBGroup = 'transaksi';
+    protected $DBGroup = 'default';
 
     protected $table = 'antrean';
     protected $primaryKey = 'id';

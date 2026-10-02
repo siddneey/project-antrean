@@ -7,6 +7,8 @@ use CodeIgniter\Router\RouteCollection;
 // TEMPORARY CORE SERVICE TEST
 // =========================================================
 
+$routes->get('/', 'Home::index');
+
 $routes->get(
     'test/core/ambil-biasa',
     'AntreanCoreTestController::ambilBiasa'
@@ -58,6 +60,16 @@ $routes->get(
 );
 
 $routes->get(
-    'test/core/booking-besok',
-    'AntreanCoreTestController::bookingBesok'
+    'test/core/booking-besok/(:segment)',
+    'AntreanCoreTestController::bookingBesok/$1'
+);
+
+$routes->get(
+    'test/core/booking/(:segment)/(:segment)',
+    'AntreanCoreTestController::booking/$1/$2'
+);
+
+$routes->get(
+    'test/core/terusan/(:num)/(:num)/(:num)',
+    'AntreanCoreTestController::terusan/$1/$2/$3'
 );

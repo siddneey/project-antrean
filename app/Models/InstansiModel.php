@@ -6,6 +6,8 @@ use CodeIgniter\Model;
 
 class InstansiModel extends Model
 {
+    protected $DBGroup = 'pusat';
+
     protected $table = 'instansi';
     protected $primaryKey = 'id';
 

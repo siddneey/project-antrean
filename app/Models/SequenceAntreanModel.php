@@ -6,7 +6,7 @@ use CodeIgniter\Model;
 
 class SequenceAntreanModel extends Model
 {
-    protected $DBGroup = 'transaksi';
+    protected $DBGroup = 'default';
 
     protected $table = 'sequence_antrean';
     protected $primaryKey = 'tanggal';

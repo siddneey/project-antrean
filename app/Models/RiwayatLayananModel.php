@@ -6,7 +6,7 @@ use CodeIgniter\Model;
 
 class RiwayatLayananModel extends Model
 {
-    protected $DBGroup = 'transaksi';
+    protected $DBGroup = 'layanan';
 
     protected $table = 'riwayat_layanan';
     protected $primaryKey = 'id';
