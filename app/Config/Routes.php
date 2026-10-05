@@ -362,3 +362,26 @@ $routes->group('petugas', ['filter' => 'auth'], static function ($routes) {
         ['filter' => 'role:2']
     );
 });
+
+    //Masyarakat
+    $routes->group('masyarakat', static function ($routes) {
+        $routes->get('instansi', 
+        'MasyarakatController::instansi');
+
+        $routes->get('kuota/(:num)', 
+        'MasyarakatController::kuota/$1');
+        $routes->post('antrean', 
+        'MasyarakatController::ambilAntrean');
+});
+
+    //Display
+    $routes->get(
+        'display/kelompok/(:num)',
+        'DisplayController::kelompok/$1'
+    );
+
+    //Subdisplay
+    $routes->get(
+        'subdisplay/grup/(:num)',
+        'SubdisplayController::grup/$1'
+);

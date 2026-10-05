@@ -4,7 +4,7 @@ namespace App\Models;
 
 use CodeIgniter\Model;
 
-class antreanModel extends Model
+class AntreanModel extends Model
 {
     protected $DBGroup = 'default';
 

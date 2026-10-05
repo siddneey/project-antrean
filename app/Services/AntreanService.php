@@ -91,6 +91,7 @@ class AntreanService
         */
 
         $this->validasiJenisAntrean($jenisAntrean);
+        $this->validasiTanggalAntrean($tanggal);
         $this->validasiHariPelayanan($tanggal);
         $this->validasiJamPengambilan($tanggal);
         $instansi = $this->validasiInstansi($instansiId);
@@ -99,6 +100,15 @@ class AntreanService
         |--------------------------------------------------------------------------
         | Simpan antrean ke DATABASE ANTREAN
         |--------------------------------------------------------------------------
+        |
+        | Sequence tanggal dikunci terlebih dahulu oleh
+        | generateNomorAntreanDalamTransaksi().
+        |
+        | Karena semua pengambilan tiket pada tanggal yang sama
+        | melewati lock sequence yang sama, pemeriksaan kuota
+        | menjadi serial dan tidak mudah ditembus oleh dua request
+        | yang datang bersamaan.
+        |
         */
 
         $this->dbAntrean->transBegin();
@@ -106,7 +116,21 @@ class AntreanService
         try {
             /*
             |--------------------------------------------------------------------------
-            | Cek kuota instansi
+            | Generate nomor sekaligus lock sequence tanggal
+            |--------------------------------------------------------------------------
+            |
+            | Jika kuota ternyata habis, transaction di-rollback sehingga
+            | increment sequence juga ikut dibatalkan.
+            |
+            */
+
+            $nomorAntrean = $this->generateNomorAntreanDalamTransaksi(
+                $tanggal
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | Cek kuota setelah sequence terkunci
             |--------------------------------------------------------------------------
             */
 
@@ -141,16 +165,7 @@ class AntreanService
                 ];
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Generate nomor antrean
-            |--------------------------------------------------------------------------
-            */
-
-            $nomorAntrean = $this->generateNomorAntreanDalamTransaksi(
-                $tanggal
-            );
-
+            
             /*
             |--------------------------------------------------------------------------
             | Simpan data antrean
@@ -171,11 +186,7 @@ class AntreanService
                 );
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Pastikan transaksi DATABASE ANTREAN berhasil
-            |--------------------------------------------------------------------------
-            */
+
 
             if ($this->dbAntrean->transStatus() === false) {
                 throw new RuntimeException(
@@ -183,13 +194,12 @@ class AntreanService
                 );
             }
 
-        $this->dbAntrean->transCommit();
+            $this->dbAntrean->transCommit();
 
         } catch (\Throwable $e) {
+            $this->dbAntrean->transRollback();
 
-        $this->dbAntrean->transRollback();
-
-        throw $e;
+            throw $e;
         }
 
         /*
@@ -343,11 +353,11 @@ class AntreanService
     |
     | Aturan:
     |
-    | 1. Tidak boleh ada antrean aktif.
-    | 2. Hanya mengambil status MENUNGGU.
-    | 3. PRIORITAS didahulukan.
-    | 4. Setelah prioritas habis, BIASA secara FIFO.
-    | 5. PENDING TIDAK PERNAH dipanggil otomatis.
+    | 1. Hanya mengambil status MENUNGGU.
+    | 2. PRIORITAS didahulukan.
+    | 3. Setelah prioritas habis, BIASA secara FIFO.
+    | 4. PENDING TIDAK PERNAH dipanggil otomatis.
+    | 5. Beberapa petugas pada instansi yang sama boleh aktif bersamaan.
     |
     */
 
@@ -365,38 +375,14 @@ class AntreanService
         try {
             /*
             |--------------------------------------------------------------------------
-            | Pastikan tidak ada antrean aktif
-            |--------------------------------------------------------------------------
-            */
-
-            $layananAktif = $this->dbLayanan
-                ->table('riwayat_layanan')
-                ->where('instansi_id', $instansiId)
-                ->whereIn(
-                    'status_layanan',
-                    [
-                        'DIPANGGIL',
-                        'DILAYANI',
-                    ]
-                )
-                ->countAllResults();
-
-            if ($layananAktif > 0) {
-                throw new RuntimeException(
-                    'Masih ada antrean yang sedang dilayani.'
-                );
-            }
-    
-
-            /*
-            |--------------------------------------------------------------------------
-            | Cari kandidat antrean MENUNGGU
+            | Cari semua kandidat MENUNGGU
             |--------------------------------------------------------------------------
             |
-            | Data status dan instansi berasal dari mpp_layanan.
-            | Nomor dan jenis antrean berasal dari mpp_antrean.
+            | Tidak ada lagi aturan "satu antrean aktif per instansi".
+            | Beberapa petugas pada instansi yang sama boleh melayani
+            | beberapa antrean secara bersamaan.
             |
-            | PENDING sengaja tidak dimasukkan.
+            | PENDING tidak masuk algoritma otomatis.
             |
             */
 
@@ -419,13 +405,7 @@ class AntreanService
                     'MENUNGGU'
                 )
 
-                /*
-                ->where(
-                    'DATE(waktu_masuk)',
-                    date('Y-m-d'),
-                    false
-                )
-                */
+
 
                 ->orderBy(
                     'waktu_masuk',
@@ -439,12 +419,6 @@ class AntreanService
                 ->getResultArray();
 
 
-            log_message(
-                'error',
-                'SELanjutnya DEBUG | kandidat=' . json_encode($kandidat)
-            );
-
-
             if (!$kandidat) {
                 throw new RuntimeException(
                     'Tidak ada antrean yang dapat dipanggil.'
@@ -453,16 +427,14 @@ class AntreanService
 
             /*
             |--------------------------------------------------------------------------
-            | Ambil data antrean dari mpp_antrean
+            | Gabungkan data dari mpp_antrean
             |--------------------------------------------------------------------------
             |
-            | Karena database berbeda, kita tidak bisa JOIN langsung.
-            | Kandidat dari mpp_layanan diperiksa satu per satu
-            | terhadap data antrean.
+            | Karena database berbeda, data antrean tidak bisa JOIN langsung.
             |
             */
 
-            $antreanTerpilih = null;
+            $hasilKandidat = [];
 
             foreach ($kandidat as $row) {
                 $dataAntrean = $this->dbAntrean
@@ -488,35 +460,19 @@ class AntreanService
                     continue;
                 }
 
-                $row['nomor_antrean'] = $dataAntrean['nomor_antrean'];
-                $row['tanggal_antrean'] = $dataAntrean['tanggal_antrean'];
-                $row['jenis_antrean'] = $dataAntrean['jenis_antrean'];
+                $row['nomor_antrean'] =
+                    (int) $dataAntrean['nomor_antrean'];
 
-                /*
-                |--------------------------------------------------------------------------
-                | Prioritas didahulukan.
-                |--------------------------------------------------------------------------
-                */
+                $row['tanggal_antrean'] =
+                    $dataAntrean['tanggal_antrean'];
 
-                if ($antreanTerpilih === null) {
-                    $antreanTerpilih = $row;
-                    continue;
-                }
+                $row['jenis_antrean'] =
+                    $dataAntrean['jenis_antrean'];
 
-                $prioritasSekarang =
-                    $row['jenis_antrean'] === 'PRIORITAS' ? 0 : 1;
-
-                $prioritasTerpilih =
-                    $antreanTerpilih['jenis_antrean'] === 'PRIORITAS'
-                        ? 0
-                        : 1;
-
-                if ($prioritasSekarang < $prioritasTerpilih) {
-                    $antreanTerpilih = $row;
-                }
+                $hasilKandidat[] = $row;
             }
 
-            if (!$antreanTerpilih) {
+            if (!$hasilKandidat) {
                 throw new RuntimeException(
                     'Tidak ada antrean yang dapat dipanggil.'
                 );
@@ -524,37 +480,89 @@ class AntreanService
 
             /*
             |--------------------------------------------------------------------------
-            | Lock riwayat layanan terpilih
+            | PRIORITAS → BIASA → FIFO
             |--------------------------------------------------------------------------
             */
 
-            $locked = $this->dbLayanan
-                ->query(
-                    'SELECT id, status_layanan
-                    FROM riwayat_layanan
-                    WHERE id = ?
-                    FOR UPDATE',
-                    [
-                        $antreanTerpilih['riwayat_layanan_id'],
-                    ]
-                )
-                ->getRowArray();
+            usort(
+                $hasilKandidat,
+                static function (array $a, array $b): int {
+                    $prioritasA =
+                        $a['jenis_antrean'] === 'PRIORITAS'
+                            ? 0
+                            : 1;
 
-            if (!$locked) {
-                throw new RuntimeException(
-                    'Data antrean tidak ditemukan.'
-                );
-            }
+                    $prioritasB =
+                        $b['jenis_antrean'] === 'PRIORITAS'
+                            ? 0
+                            : 1;
+
+                    if ($prioritasA !== $prioritasB) {
+                        return $prioritasA <=> $prioritasB;
+                    }
+
+                    $waktuA = strtotime($a['waktu_masuk']);
+                    $waktuB = strtotime($b['waktu_masuk']);
+
+                    if ($waktuA !== $waktuB) {
+                        return $waktuA <=> $waktuB;
+                    }
+
+                    return (int) $a['riwayat_layanan_id']
+                        <=> (int) $b['riwayat_layanan_id'];
+                }
+            );
 
             /*
             |--------------------------------------------------------------------------
-            | Pastikan masih MENUNGGU
+            | Cari kandidat yang berhasil dikunci
             |--------------------------------------------------------------------------
+            |
+            | Dua petugas bisa memilih kandidat yang sama pada saat bersamaan.
+            | Karena itu setiap kandidat dikunci dengan FOR UPDATE.
+            |
+            | Jika kandidat sudah berubah status oleh petugas lain,
+            | kandidat dilewati dan sistem mencoba kandidat berikutnya.
+            |
             */
 
-            if ($locked['status_layanan'] !== 'MENUNGGU') {
+            $antreanTerpilih = null;
+
+            foreach ($hasilKandidat as $row) {
+                $locked = $this->dbLayanan
+                    ->query(
+                        'SELECT id, antrean_id, instansi_id, status_layanan
+                         FROM riwayat_layanan
+                         WHERE id = ?
+                         FOR UPDATE',
+                        [
+                            $row['riwayat_layanan_id'],
+                        ]
+                    )
+                    ->getRowArray();
+
+                if (!$locked) {
+                    continue;
+                }
+
+                if ($locked['status_layanan'] !== 'MENUNGGU') {
+                    continue;
+                }
+
+                if ((int) $locked['instansi_id'] !== $instansiId) {
+                    continue;
+                }
+
+                $row['antrean_id'] =
+                    (int) $locked['antrean_id'];
+
+                $antreanTerpilih = $row;
+                break;
+            }
+
+            if (!$antreanTerpilih) {
                 throw new RuntimeException(
-                    'Antrean sudah diproses oleh petugas lain.'
+                    'Semua antrean yang tersedia sudah diproses oleh petugas lain.'
                 );
             }
 
@@ -562,8 +570,13 @@ class AntreanService
 
             /*
             |--------------------------------------------------------------------------
-            | Setelah dipanggil langsung dianggap DILAYANI
+            | PANGGIL PERTAMA
             |--------------------------------------------------------------------------
+            |
+            | Begitu status berubah dari MENUNGGU menjadi DILAYANI dan
+            | riwayat PANGGIL tercatat, petugas lain boleh mengambil
+            | antrean MENUNGGU berikutnya.
+            |
             */
 
             $this->dbLayanan
@@ -579,9 +592,15 @@ class AntreanService
                     'updated_at' => $waktuPanggil,
                 ]);
 
+            if ($this->dbLayanan->affectedRows() < 1) {
+                throw new RuntimeException(
+                    'Gagal mengubah status antrean menjadi DILAYANI.'
+                );
+            }
+
             /*
             |--------------------------------------------------------------------------
-            | Simpan riwayat panggilan
+            | Catat panggilan pertama
             |--------------------------------------------------------------------------
             */
 
@@ -690,13 +709,7 @@ class AntreanService
             |--------------------------------------------------------------------------
             */
 
-            log_message(
-                'error',
-                'PANGGIL ULANG DEBUG | riwayat_id=' . $riwayatLayananId
-                . ' | petugas_db=' . ($riwayat['petugas_id'] ?? 'NULL')
-                . ' | petugas_request=' . $petugasId
-                . ' | status=' . ($riwayat['status_layanan'] ?? 'NULL')
-            );
+
 
             if (
                 (int) $riwayat['petugas_id']
@@ -986,6 +999,9 @@ class AntreanService
     |
     | Pending TIDAK masuk algoritma "Selanjutnya".
     |
+    | Pending dapat dipanggil manual meskipun petugas lain pada
+    | instansi yang sama sedang melayani antrean lain.
+    |
     | Petugas memanggilnya secara manual dari tabel
     | "Antrean yang Sudah Dipanggil".
     |
@@ -1031,32 +1047,7 @@ class AntreanService
                 );
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Tidak boleh ada antrean aktif lain
-            |--------------------------------------------------------------------------
-            */
-
-            $layananAktif = $this->dbLayanan
-                ->table('riwayat_layanan')
-                ->where(
-                    'instansi_id',
-                    $riwayat['instansi_id']
-                )
-                ->whereIn(
-                    'status_layanan',
-                    [
-                        'DIPANGGIL',
-                        'DILAYANI',
-                    ]
-                )
-                ->countAllResults();
-
-            if ($layananAktif > 0) {
-                throw new RuntimeException(
-                    'Masih ada antrean yang sedang dilayani.'
-                );
-            }
+        
 
             $waktu = date('Y-m-d H:i:s');
 
@@ -1438,11 +1429,20 @@ class AntreanService
 
     public function getAntreanSedangDilayani(
         int $instansiId
-    ): ?array {
+    ): array {
         $dbLayanan = $this->dbLayanan;
         $dbAntrean = $this->dbAntrean;
 
-        // Ambil riwayat yang sedang aktif dari mpp_layanan
+        /*
+        |--------------------------------------------------------------------------
+        | Ambil SEMUA antrean aktif
+        |--------------------------------------------------------------------------
+        |
+        | Satu instansi dapat memiliki beberapa petugas yang bekerja
+        | bersamaan, sehingga endpoint ini tidak boleh memakai limit(1).
+        |
+        */
+
         $riwayat = $dbLayanan
             ->table('riwayat_layanan')
             ->where(
@@ -1460,42 +1460,47 @@ class AntreanService
                 'id',
                 'DESC'
             )
-            ->limit(1)
             ->get()
-            ->getRowArray();
+            ->getResultArray();
 
         if (!$riwayat) {
-            return null;
+            return [];
         }
 
-        // Ambil data nomor antrean dari mpp_antrean
-        $antrean = $dbAntrean
-            ->table('antrean')
-            ->select('
-                nomor_antrean,
-                tanggal_antrean,
-                jenis_antrean
-            ')
-            ->where(
-                'id',
-                $riwayat['antrean_id']
-            )
-            ->where(
-                'tanggal_antrean',
-                date('Y-m-d')
-            )
-            ->get()
-            ->getRowArray();
+        $hasil = [];
 
-        if (!$antrean) {
-            return null;
+        foreach ($riwayat as $row) {
+            $antrean = $dbAntrean
+                ->table('antrean')
+                ->select([
+                    'nomor_antrean',
+                    'tanggal_antrean',
+                    'jenis_antrean',
+                ])
+                ->where(
+                    'id',
+                    $row['antrean_id']
+                )
+                ->where(
+                    'tanggal_antrean',
+                    date('Y-m-d')
+                )
+                ->get()
+                ->getRowArray();
+
+            if (!$antrean) {
+                continue;
+            }
+
+            $hasil[] = array_merge(
+                $row,
+                $antrean
+            );
         }
 
-        return array_merge(
-            $riwayat,
-            $antrean
-        );
+        return $hasil;
     }
+
     /*
     |--------------------------------------------------------------------------
     | GET ANTREAN SELANJUTNYA
@@ -1915,6 +1920,8 @@ class AntreanService
             );
         }
 
+        $this->validasiInstansi($instansiId);
+
         if ($kuotaBiasa < 1) {
             throw new \InvalidArgumentException(
                 'Kuota biasa minimal 1 tiket.'
@@ -1975,6 +1982,69 @@ class AntreanService
         )) {
             throw new RuntimeException(
                 'Jenis antrean tidak valid.'
+            );
+        }
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDASI TANGGAL ANTREAN
+    |--------------------------------------------------------------------------
+    |
+    | Aturan:
+    | - format wajib YYYY-MM-DD
+    | - tidak boleh sebelum hari ini
+    | - maksimal 7 hari dari hari ini
+    |
+    */
+
+    protected function validasiTanggalAntrean(
+        string $tanggal
+    ): void {
+        $date = \DateTime::createFromFormat(
+            'Y-m-d',
+            $tanggal
+        );
+
+        $errors = \DateTime::getLastErrors();
+
+        if (
+            !$date
+            || (
+                $errors !== false
+                && (
+                    $errors['warning_count'] > 0
+                    || $errors['error_count'] > 0
+                )
+            )
+            || $date->format('Y-m-d') !== $tanggal
+        ) {
+            throw new RuntimeException(
+                'Format tanggal tidak valid. Gunakan YYYY-MM-DD.'
+            );
+        }
+
+        $hariIni = new \DateTimeImmutable(
+            date('Y-m-d')
+        );
+
+        $tanggalAntrean = new \DateTimeImmutable(
+            $tanggal
+        );
+
+        $tanggalMaksimal = $hariIni->modify(
+            '+7 days'
+        );
+
+        if ($tanggalAntrean < $hariIni) {
+            throw new RuntimeException(
+                'Tanggal antrean tidak boleh sebelum hari ini.'
+            );
+        }
+
+        if ($tanggalAntrean > $tanggalMaksimal) {
+            throw new RuntimeException(
+                'Antrean hanya dapat diambil maksimal 7 hari ke depan.'
             );
         }
     }
