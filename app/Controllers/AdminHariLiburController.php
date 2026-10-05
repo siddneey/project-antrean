@@ -13,23 +13,52 @@ class AdminHariLiburController extends BaseController
         $this->hariLiburModel = new HariLiburModel();
     }
 
+    /**
+     * GET /admin/hari-libur
+     *
+     * Menampilkan seluruh hari libur.
+     */
     public function index()
     {
-        $hariLibur = $this->hariLiburModel
-            ->select('id, tanggal, keterangan, created_at, updated_at')
-            ->orderBy('tanggal', 'ASC')
-            ->findAll();
+        try {
+            $hariLibur = $this->hariLiburModel
+                ->select('id, tanggal, keterangan, created_at, updated_at')
+                ->orderBy('tanggal', 'ASC')
+                ->findAll();
 
-        return $this->response->setJSON([
-            'status' => true,
-            'data'   => $hariLibur,
-        ]);
+            return $this->response->setJSON([
+                'status' => true,
+                'data'   => $hariLibur,
+            ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminHariLiburController::index | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal mengambil data hari libur.',
+                ]);
+        }
     }
 
+    /**
+     * POST /admin/hari-libur
+     *
+     * Menambahkan hari libur baru.
+     */
     public function create()
     {
-        $tanggal    = trim((string) $this->request->getPost('tanggal'));
-        $keterangan = trim((string) $this->request->getPost('keterangan'));
+        $tanggal = trim(
+            (string) $this->request->getPost('tanggal')
+        );
+
+        $keterangan = trim(
+            (string) $this->request->getPost('keterangan')
+        );
 
         if ($tanggal === '') {
             return $this->response
@@ -40,9 +69,7 @@ class AdminHariLiburController extends BaseController
                 ]);
         }
 
-        $tanggalObj = \DateTime::createFromFormat('Y-m-d', $tanggal);
-
-        if (!$tanggalObj || $tanggalObj->format('Y-m-d') !== $tanggal) {
+        if (!$this->isValidDate($tanggal)) {
             return $this->response
                 ->setStatusCode(400)
                 ->setJSON([
@@ -51,6 +78,7 @@ class AdminHariLiburController extends BaseController
                 ]);
         }
 
+        // Cek tanggal duplikat
         $existing = $this->hariLiburModel
             ->where('tanggal', $tanggal)
             ->first();
@@ -64,22 +92,52 @@ class AdminHariLiburController extends BaseController
                 ]);
         }
 
-        $this->hariLiburModel->insert([
-            'tanggal'    => $tanggal,
-            'keterangan' => $keterangan !== '' ? $keterangan : null,
-        ]);
-
-        return $this->response
-            ->setStatusCode(201)
-            ->setJSON([
-                'status'  => true,
-                'message' => 'Hari libur berhasil ditambahkan.',
-                'id'      => $this->hariLiburModel->getInsertID(),
+        try {
+            $this->hariLiburModel->insert([
+                'tanggal'    => $tanggal,
+                'keterangan' => $keterangan !== '' ? $keterangan : null,
             ]);
+
+            return $this->response
+                ->setStatusCode(201)
+                ->setJSON([
+                    'status'  => true,
+                    'message' => 'Hari libur berhasil ditambahkan.',
+                    'id'      => $this->hariLiburModel->getInsertID(),
+                ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminHariLiburController::create | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal menambahkan hari libur.',
+                ]);
+        }
     }
 
+    /**
+     * PUT /admin/hari-libur/{id}
+     *
+     * Mengubah hari libur.
+     */
     public function update($id)
     {
+        if (!filter_var($id, FILTER_VALIDATE_INT)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'ID hari libur tidak valid.',
+                ]);
+        }
+
+        $id = (int) $id;
+
         $hariLibur = $this->hariLiburModel->find($id);
 
         if (!$hariLibur) {
@@ -92,8 +150,19 @@ class AdminHariLiburController extends BaseController
         }
 
         $input = $this->request->getJSON(true);
-        $data  = [];
 
+        if (!is_array($input)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Data JSON tidak valid.',
+                ]);
+        }
+
+        $data = [];
+
+        // Update tanggal
         if (array_key_exists('tanggal', $input)) {
             $tanggal = trim((string) $input['tanggal']);
 
@@ -106,9 +175,7 @@ class AdminHariLiburController extends BaseController
                     ]);
             }
 
-            $tanggalObj = \DateTime::createFromFormat('Y-m-d', $tanggal);
-
-            if (!$tanggalObj || $tanggalObj->format('Y-m-d') !== $tanggal) {
+            if (!$this->isValidDate($tanggal)) {
                 return $this->response
                     ->setStatusCode(400)
                     ->setJSON([
@@ -117,6 +184,7 @@ class AdminHariLiburController extends BaseController
                     ]);
             }
 
+            // Cek tanggal duplikat kecuali dirinya sendiri
             $existing = $this->hariLiburModel
                 ->where('tanggal', $tanggal)
                 ->where('id !=', $id)
@@ -134,9 +202,13 @@ class AdminHariLiburController extends BaseController
             $data['tanggal'] = $tanggal;
         }
 
+        // Update keterangan
         if (array_key_exists('keterangan', $input)) {
             $keterangan = trim((string) $input['keterangan']);
-            $data['keterangan'] = $keterangan !== '' ? $keterangan : null;
+
+            $data['keterangan'] = $keterangan !== ''
+                ? $keterangan
+                : null;
         }
 
         if (empty($data)) {
@@ -148,16 +220,46 @@ class AdminHariLiburController extends BaseController
                 ]);
         }
 
-        $this->hariLiburModel->update($id, $data);
+        try {
+            $this->hariLiburModel->update($id, $data);
 
-        return $this->response->setJSON([
-            'status'  => true,
-            'message' => 'Hari libur berhasil diperbarui.',
-        ]);
+            return $this->response->setJSON([
+                'status'  => true,
+                'message' => 'Hari libur berhasil diperbarui.',
+            ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminHariLiburController::update | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal memperbarui hari libur.',
+                ]);
+        }
     }
 
+    /**
+     * DELETE /admin/hari-libur/{id}
+     *
+     * Menghapus hari libur.
+     */
     public function delete($id)
     {
+        if (!filter_var($id, FILTER_VALIDATE_INT)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'ID hari libur tidak valid.',
+                ]);
+        }
+
+        $id = (int) $id;
+
         $hariLibur = $this->hariLiburModel->find($id);
 
         if (!$hariLibur) {
@@ -169,11 +271,36 @@ class AdminHariLiburController extends BaseController
                 ]);
         }
 
-        $this->hariLiburModel->delete($id);
+        try {
+            $this->hariLiburModel->delete($id);
 
-        return $this->response->setJSON([
-            'status'  => true,
-            'message' => 'Hari libur berhasil dihapus.',
-        ]);
+            return $this->response->setJSON([
+                'status'  => true,
+                'message' => 'Hari libur berhasil dihapus.',
+            ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminHariLiburController::delete | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal menghapus hari libur.',
+                ]);
+        }
+    }
+
+    /**
+     * Validasi tanggal dengan format YYYY-MM-DD.
+     */
+    protected function isValidDate(string $tanggal): bool
+    {
+        $tanggalObj = \DateTime::createFromFormat('Y-m-d', $tanggal);
+
+        return $tanggalObj !== false
+            && $tanggalObj->format('Y-m-d') === $tanggal;
     }
 }

@@ -14,50 +14,49 @@ class PetugasAntreanController extends BaseController
         $this->antreanService = new AntreanService();
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | ANTREAN SEDANG DILAYANI
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * GET /petugas/antrean/sedang-dilayani
+     */
     public function sedangDilayani()
     {
         $instansiId = (int) session()->get('instansi_id');
 
-        $data = $this->antreanService
-            ->getAntreanSedangDilayani($instansiId);
+        try {
+            $data = $this->antreanService
+                ->getAntreanSedangDilayani($instansiId);
 
-        return $this->response->setJSON([
-            'status' => true,
-            'data'   => $data,
-        ]);
+            return $this->response->setJSON([
+                'status' => true,
+                'data'   => $data,
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse($e);
+        }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | ANTREAN MENUNGGU
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * GET /petugas/antrean/menunggu
+     */
     public function menunggu()
     {
         $instansiId = (int) session()->get('instansi_id');
 
-        $data = $this->antreanService
-            ->getAntreanMenunggu($instansiId);
+        try {
+            $data = $this->antreanService
+                ->getAntreanMenunggu($instansiId);
 
-        return $this->response->setJSON([
-            'status' => true,
-            'data'   => $data,
-        ]);
+            return $this->response->setJSON([
+                'status' => true,
+                'data'   => $data,
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse($e);
+        }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PANGGIL ANTREAN BERIKUTNYA
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * POST /petugas/antrean/panggil
+     */
     public function panggil()
     {
         $petugasId  = (int) session()->get('user_id');
@@ -76,43 +75,33 @@ class PetugasAntreanController extends BaseController
                 'data'    => $data,
             ]);
         } catch (Throwable $e) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => $e->getMessage(),
-                ]);
+            return $this->errorResponse($e);
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PANGGIL ULANG
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * POST /petugas/antrean/panggil-ulang
+     */
     public function panggilUlang()
     {
         $petugasId = (int) session()->get('user_id');
+        $input = $this->request->getJSON(true) ?? [];
 
-        $input = $this->request->getJSON(true);
-
-        $riwayatLayananId = (int) ($input['riwayat_layanan_id'] ?? 0);
+        $riwayatLayananId = (int) (
+            $input['riwayat_layanan_id'] ?? 0
+        );
 
         if ($riwayatLayananId <= 0) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'riwayat_layanan_id wajib diisi.',
-                ]);
+            return $this->badRequest(
+                'riwayat_layanan_id wajib diisi.'
+            );
         }
 
         try {
             $data = $this->antreanService
                 ->panggilUlang(
-                    $petugasId,
-                    $riwayatLayananId
+                    $riwayatLayananId,
+                    $petugasId
                 );
 
             return $this->response->setJSON([
@@ -121,64 +110,64 @@ class PetugasAntreanController extends BaseController
                 'data'    => $data,
             ]);
         } catch (Throwable $e) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => $e->getMessage(),
-                ]);
+            return $this->errorResponse($e);
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | KONFIRMASI STATUS
-    |--------------------------------------------------------------------------
-    |
-    | status:
-    | - SELESAI
-    | - PENDING
-    |
-    */
-
+    /**
+     * POST /petugas/antrean/status
+     *
+     * status:
+     * - SELESAI
+     * - PENDING
+     */
     public function konfirmasiStatus()
     {
         $petugasId = (int) session()->get('user_id');
+        $input = $this->request->getJSON(true) ?? [];
 
-        $input = $this->request->getJSON(true);
+        $riwayatLayananId = (int) (
+            $input['riwayat_layanan_id'] ?? 0
+        );
 
-        $riwayatLayananId = (int) ($input['riwayat_layanan_id'] ?? 0);
-        $status            = trim((string) ($input['status'] ?? ''));
-        $layananId         = isset($input['layanan_id'])
-            ? (int) $input['layanan_id']
-            : null;
-        $keterangan        = isset($input['keterangan'])
+        $status = strtoupper(
+            trim((string) ($input['status'] ?? ''))
+        );
+
+        $layananId = null;
+
+        if (array_key_exists('layanan_id', $input)) {
+            $layananId = (int) $input['layanan_id'];
+        }
+
+        $keterangan = array_key_exists('keterangan', $input)
             ? trim((string) $input['keterangan'])
             : null;
 
         if ($riwayatLayananId <= 0) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'riwayat_layanan_id wajib diisi.',
-                ]);
+            return $this->badRequest(
+                'riwayat_layanan_id wajib diisi.'
+            );
         }
 
-        if ($status === '') {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'status wajib diisi.',
-                ]);
+        if (!in_array($status, ['SELESAI', 'PENDING'], true)) {
+            return $this->badRequest(
+                'status harus SELESAI atau PENDING.'
+            );
+        }
+
+        if ($status === 'SELESAI' && $layananId <= 0) {
+            return $this->badRequest(
+                'layanan_id wajib diisi untuk status SELESAI.'
+            );
         }
 
         try {
             $data = $this->antreanService
-                ->konfirmasiStatus(
-                    $petugasId,
+              
+            ->konfirmasiStatus(
                     $riwayatLayananId,
+                    $petugasId,
                     $status,
                     $layananId,
                     $keterangan
@@ -186,47 +175,39 @@ class PetugasAntreanController extends BaseController
 
             return $this->response->setJSON([
                 'status'  => true,
-                'message' => 'Status antrean berhasil diperbarui.',
+                'message' => $status === 'SELESAI'
+                    ? 'Antrean berhasil diselesaikan.'
+                    : 'Antrean berhasil dipindahkan ke pending.',
                 'data'    => $data,
             ]);
         } catch (Throwable $e) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => $e->getMessage(),
-                ]);
+            return $this->errorResponse($e);
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PANGGIL ANTREAN PENDING
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * POST /petugas/antrean/panggil-pending
+     */
     public function panggilPending()
     {
         $petugasId = (int) session()->get('user_id');
+        $input = $this->request->getJSON(true) ?? [];
 
-        $input = $this->request->getJSON(true);
-
-        $riwayatLayananId = (int) ($input['riwayat_layanan_id'] ?? 0);
+        $riwayatLayananId = (int) (
+            $input['riwayat_layanan_id'] ?? 0
+        );
 
         if ($riwayatLayananId <= 0) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'riwayat_layanan_id wajib diisi.',
-                ]);
+            return $this->badRequest(
+                'riwayat_layanan_id wajib diisi.'
+            );
         }
 
         try {
             $data = $this->antreanService
                 ->panggilPending(
-                    $petugasId,
-                    $riwayatLayananId
+                    $riwayatLayananId,
+                    $petugasId
                 );
 
             return $this->response->setJSON([
@@ -235,86 +216,67 @@ class PetugasAntreanController extends BaseController
                 'data'    => $data,
             ]);
         } catch (Throwable $e) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => $e->getMessage(),
-                ]);
+            return $this->errorResponse($e);
         }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | ANTREAN SUDAH DIPANGGIL / RIWAYAT AKTIVITAS
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * GET /petugas/antrean/sudah-dipanggil
+     */
     public function sudahDipanggil()
     {
         $instansiId = (int) session()->get('instansi_id');
 
-        $data = $this->antreanService
-            ->getAntreanSudahDipanggil($instansiId);
+        try {
+            $data = $this->antreanService
+                ->getAntreanSudahDipanggil($instansiId);
 
-        return $this->response->setJSON([
-            'status' => true,
-            'data'   => $data,
-        ]);
+            return $this->response->setJSON([
+                'status' => true,
+                'data'   => $data,
+            ]);
+        } catch (Throwable $e) {
+            return $this->errorResponse($e);
+        }
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | TERUSAN ANTREAN
-    |--------------------------------------------------------------------------
-    */
-
+    /**
+     * POST /petugas/antrean/terusan
+     */
     public function terusan()
     {
         $petugasId = (int) session()->get('user_id');
+        $input = $this->request->getJSON(true) ?? [];
 
-        $input = $this->request->getJSON(true);
+        $riwayatLayananId = (int) (
+            $input['riwayat_layanan_id'] ?? 0
+        );
 
-        $riwayatLayananId = (int) ($input['riwayat_layanan_id'] ?? 0);
-        $layananId        = (int) ($input['layanan_id'] ?? 0);
-        $instansiTujuanId = (int) ($input['instansi_tujuan_id'] ?? 0);
-        $keterangan       = isset($input['keterangan'])
+        $instansiTujuanId = (int) (
+            $input['instansi_tujuan_id'] ?? 0
+        );
+
+        $keterangan = array_key_exists('keterangan', $input)
             ? trim((string) $input['keterangan'])
             : null;
 
         if ($riwayatLayananId <= 0) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'riwayat_layanan_id wajib diisi.',
-                ]);
-        }
-
-        if ($layananId <= 0) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'layanan_id wajib diisi.',
-                ]);
+            return $this->badRequest(
+                'riwayat_layanan_id wajib diisi.'
+            );
         }
 
         if ($instansiTujuanId <= 0) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => 'instansi_tujuan_id wajib diisi.',
-                ]);
+            return $this->badRequest(
+                'instansi_tujuan_id wajib diisi.'
+            );
         }
 
         try {
             $data = $this->antreanService
                 ->terusanAntrean(
-                    $petugasId,
                     $riwayatLayananId,
-                    $layananId,
+                    $petugasId,
                     $instansiTujuanId,
                     $keterangan
                 );
@@ -325,12 +287,33 @@ class PetugasAntreanController extends BaseController
                 'data'    => $data,
             ]);
         } catch (Throwable $e) {
-            return $this->response
-                ->setStatusCode(400)
-                ->setJSON([
-                    'status'  => false,
-                    'message' => $e->getMessage(),
-                ]);
+            return $this->errorResponse($e);
         }
+    }
+
+    /**
+     * Response error bisnis/validasi.
+     */
+    protected function errorResponse(Throwable $e)
+    {
+        return $this->response
+            ->setStatusCode(400)
+            ->setJSON([
+                'status'  => false,
+                'message' => $e->getMessage(),
+            ]);
+    }
+
+    /**
+     * Response bad request.
+     */
+    protected function badRequest(string $message)
+    {
+        return $this->response
+            ->setStatusCode(400)
+            ->setJSON([
+                'status'  => false,
+                'message' => $message,
+            ]);
     }
 }

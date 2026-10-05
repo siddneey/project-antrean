@@ -4,6 +4,7 @@ namespace App\Controllers;
 
 use App\Models\InstansiModel;
 use App\Models\LayananModel;
+use Config\Database;
 
 class AdminLayananController extends BaseController
 {
@@ -16,18 +17,42 @@ class AdminLayananController extends BaseController
         $this->instansiModel = new InstansiModel();
     }
 
+    /**
+     * GET /admin/layanan
+     *
+     * Menampilkan seluruh layanan.
+     */
     public function index()
     {
-        $layanan = $this->layananModel
-            ->select('id, instansi_id, nama_layanan, created_at, updated_at')
-            ->findAll();
+        try {
+            $layanan = $this->layananModel
+                ->select('id, instansi_id, nama_layanan, created_at, updated_at')
+                ->findAll();
 
-        return $this->response->setJSON([
-            'status' => true,
-            'data'   => $layanan,
-        ]);
+            return $this->response->setJSON([
+                'status' => true,
+                'data'   => $layanan,
+            ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminLayananController::index | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal mengambil data layanan.',
+                ]);
+        }
     }
 
+    /**
+     * POST /admin/layanan
+     *
+     * Menambahkan layanan baru.
+     */
     public function create()
     {
         $namaLayanan = trim(
@@ -44,6 +69,17 @@ class AdminLayananController extends BaseController
                     'message' => 'Nama layanan dan instansi wajib diisi.',
                 ]);
         }
+
+        if (!filter_var($instansiId, FILTER_VALIDATE_INT)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'ID instansi tidak valid.',
+                ]);
+        }
+
+        $instansiId = (int) $instansiId;
 
         // Validasi instansi
         if (!$this->instansiModel->find($instansiId)) {
@@ -70,22 +106,52 @@ class AdminLayananController extends BaseController
                 ]);
         }
 
-        $this->layananModel->insert([
-            'instansi_id'  => (int) $instansiId,
-            'nama_layanan' => $namaLayanan,
-        ]);
-
-        return $this->response
-            ->setStatusCode(201)
-            ->setJSON([
-                'status'  => true,
-                'message' => 'Layanan berhasil ditambahkan.',
-                'id'      => $this->layananModel->getInsertID(),
+        try {
+            $this->layananModel->insert([
+                'instansi_id'  => $instansiId,
+                'nama_layanan' => $namaLayanan,
             ]);
+
+            return $this->response
+                ->setStatusCode(201)
+                ->setJSON([
+                    'status'  => true,
+                    'message' => 'Layanan berhasil ditambahkan.',
+                    'id'      => $this->layananModel->getInsertID(),
+                ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminLayananController::create | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal menambahkan layanan.',
+                ]);
+        }
     }
 
+    /**
+     * PUT /admin/layanan/{id}
+     *
+     * Mengubah data layanan.
+     */
     public function update($id)
     {
+        if (!filter_var($id, FILTER_VALIDATE_INT)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'ID layanan tidak valid.',
+                ]);
+        }
+
+        $id = (int) $id;
+
         $layanan = $this->layananModel->find($id);
 
         if (!$layanan) {
@@ -99,11 +165,21 @@ class AdminLayananController extends BaseController
 
         $input = $this->request->getJSON(true);
 
+        if (!is_array($input)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Data JSON tidak valid.',
+                ]);
+        }
+
         $data = [];
 
         $namaLayanan = $input['nama_layanan'] ?? null;
         $instansiId  = $input['instansi_id'] ?? null;
 
+        // Update nama layanan
         if ($namaLayanan !== null) {
             $namaLayanan = trim((string) $namaLayanan);
 
@@ -119,7 +195,19 @@ class AdminLayananController extends BaseController
             $data['nama_layanan'] = $namaLayanan;
         }
 
+        // Update instansi
         if ($instansiId !== null) {
+            if (!filter_var($instansiId, FILTER_VALIDATE_INT)) {
+                return $this->response
+                    ->setStatusCode(400)
+                    ->setJSON([
+                        'status'  => false,
+                        'message' => 'ID instansi tidak valid.',
+                    ]);
+            }
+
+            $instansiId = (int) $instansiId;
+
             if (!$this->instansiModel->find($instansiId)) {
                 return $this->response
                     ->setStatusCode(404)
@@ -129,7 +217,7 @@ class AdminLayananController extends BaseController
                     ]);
             }
 
-            $data['instansi_id'] = (int) $instansiId;
+            $data['instansi_id'] = $instansiId;
         }
 
         if (empty($data)) {
@@ -141,7 +229,7 @@ class AdminLayananController extends BaseController
                 ]);
         }
 
-        // Tentukan nilai akhir setelah update
+        // Nilai akhir setelah update
         $finalInstansiId = $data['instansi_id'] ?? $layanan['instansi_id'];
         $finalNamaLayanan = $data['nama_layanan'] ?? $layanan['nama_layanan'];
 
@@ -161,16 +249,49 @@ class AdminLayananController extends BaseController
                 ]);
         }
 
-        $this->layananModel->update($id, $data);
+        try {
+            $this->layananModel->update($id, $data);
 
-        return $this->response->setJSON([
-            'status'  => true,
-            'message' => 'Layanan berhasil diperbarui.',
-        ]);
+            return $this->response->setJSON([
+                'status'  => true,
+                'message' => 'Layanan berhasil diperbarui.',
+            ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminLayananController::update | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal memperbarui layanan.',
+                ]);
+        }
     }
 
+    /**
+     * DELETE /admin/layanan/{id}
+     *
+     * Menghapus layanan.
+     *
+     * Layanan tidak boleh dihapus jika sudah digunakan
+     * pada riwayat pelayanan.
+     */
     public function delete($id)
     {
+        if (!filter_var($id, FILTER_VALIDATE_INT)) {
+            return $this->response
+                ->setStatusCode(400)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'ID layanan tidak valid.',
+                ]);
+        }
+
+        $id = (int) $id;
+
         $layanan = $this->layananModel->find($id);
 
         if (!$layanan) {
@@ -182,11 +303,45 @@ class AdminLayananController extends BaseController
                 ]);
         }
 
-        $this->layananModel->delete($id);
+        try {
+            /*
+             * riwayat_layanan berada di database mpp_layanan,
+             * sedangkan layanan berada di mpp_pusat.
+             */
+            $dbLayanan = Database::connect('layanan');
 
-        return $this->response->setJSON([
-            'status'  => true,
-            'message' => 'Layanan berhasil dihapus.',
-        ]);
+            $jumlahRiwayat = $dbLayanan
+                ->table('riwayat_layanan')
+                ->where('layanan_id', $id)
+                ->countAllResults();
+
+            if ($jumlahRiwayat > 0) {
+                return $this->response
+                    ->setStatusCode(409)
+                    ->setJSON([
+                        'status'  => false,
+                        'message' => 'Layanan tidak dapat dihapus karena sudah digunakan dalam riwayat pelayanan.',
+                    ]);
+            }
+
+            $this->layananModel->delete($id);
+
+            return $this->response->setJSON([
+                'status'  => true,
+                'message' => 'Layanan berhasil dihapus.',
+            ]);
+        } catch (\Throwable $e) {
+            log_message(
+                'error',
+                'AdminLayananController::delete | ' . $e->getMessage()
+            );
+
+            return $this->response
+                ->setStatusCode(500)
+                ->setJSON([
+                    'status'  => false,
+                    'message' => 'Gagal menghapus layanan.',
+                ]);
+        }
     }
 }

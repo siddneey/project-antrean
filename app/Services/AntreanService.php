@@ -165,7 +165,7 @@ class AntreanService
                 ];
             }
 
-            
+
             /*
             |--------------------------------------------------------------------------
             | Simpan data antrean
@@ -1831,6 +1831,11 @@ class AntreanService
         string $jenisAntrean,
         ?string $tanggal = null
     ): int {
+         if ($instansiId < 1) {
+        throw new \InvalidArgumentException(
+            'Instansi tidak valid.'
+        );
+    }
         $tanggal ??= date('Y-m-d');
 
         $jenisAntrean = strtoupper(trim($jenisAntrean));
@@ -1935,6 +1940,8 @@ class AntreanService
         }
 
         $tanggal ??= date('Y-m-d');
+
+        $this->validasiTanggalAntrean($tanggal);
 
         $data = $this->kuotaInstansiModel
             ->where('instansi_id', $instansiId)
