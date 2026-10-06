@@ -25,7 +25,7 @@ class AdminPetugasController extends BaseController
     {
         $petugas = $this->userModel
             ->where('role_id', 2)
-            ->select('id, role_id, instansi_id, nama, username, created_at, updated_at')
+            ->select('id, role_id, instansi_id, username, created_at, updated_at')
             ->findAll();
 
         return $this->response->setJSON([
@@ -41,14 +41,12 @@ class AdminPetugasController extends BaseController
      */
     public function create()
     {
-        $nama       = trim((string) $this->request->getPost('nama'));
         $username   = trim((string) $this->request->getPost('username'));
         $password   = (string) $this->request->getPost('password');
         $instansiId = $this->request->getPost('instansi_id');
 
         // Validasi input wajib
         if (
-            $nama === '' ||
             $username === '' ||
             $password === '' ||
             !$instansiId
@@ -57,7 +55,7 @@ class AdminPetugasController extends BaseController
                 ->setStatusCode(400)
                 ->setJSON([
                     'status'  => false,
-                    'message' => 'Nama, username, password, dan instansi wajib diisi.',
+                    'message' => 'username, password, dan instansi wajib diisi.',
                 ]);
         }
 
@@ -77,7 +75,7 @@ class AdminPetugasController extends BaseController
                 ->setStatusCode(409)
                 ->setJSON([
                     'status'  => false,
-                    'message' => 'Username sudah digunakan.',
+                    'message' => 'username sudah digunakan.',
                 ]);
         }
 
@@ -85,7 +83,6 @@ class AdminPetugasController extends BaseController
         $this->userModel->insert([
             'role_id'     => 2,
             'instansi_id' => (int) $instansiId,
-            'nama'        => $nama,
             'username'    => $username,
             'password'    => password_hash($password, PASSWORD_DEFAULT),
         ]);
@@ -126,25 +123,24 @@ class AdminPetugasController extends BaseController
         // Data PUT dikirim dalam format JSON
         $input = $this->request->getJSON(true);
 
-        $nama       = $input['nama'] ?? null;
         $username   = $input['username'] ?? null;
         $instansiId = $input['instansi_id'] ?? null;
         $password   = $input['password'] ?? null;
 
-        // Update nama
-        if ($nama !== null) {
-            $nama = trim((string) $nama);
+        // Update username
+        if ($username !== null) {
+            $username = trim((string) $username);
 
-            if ($nama === '') {
+            if ($username === '') {
                 return $this->response
                     ->setStatusCode(400)
                     ->setJSON([
                         'status'  => false,
-                        'message' => 'Nama tidak boleh kosong.',
+                        'message' => 'username tidak boleh kosong.',
                     ]);
             }
 
-            $data['nama'] = $nama;
+            $data['username'] = $username;
         }
 
         // Update username
@@ -156,7 +152,7 @@ class AdminPetugasController extends BaseController
                     ->setStatusCode(400)
                     ->setJSON([
                         'status'  => false,
-                        'message' => 'Username tidak boleh kosong.',
+                        'message' => 'username tidak boleh kosong.',
                     ]);
             }
 
@@ -171,7 +167,7 @@ class AdminPetugasController extends BaseController
                     ->setStatusCode(409)
                     ->setJSON([
                         'status'  => false,
-                        'message' => 'Username sudah digunakan.',
+                        'message' => 'username sudah digunakan.',
                     ]);
             }
 

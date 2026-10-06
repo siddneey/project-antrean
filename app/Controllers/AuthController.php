@@ -28,7 +28,7 @@ class AuthController extends BaseController
                 ->setStatusCode(400)
                 ->setJSON([
                     'status'  => false,
-                    'message' => 'Username dan password wajib diisi.',
+                    'message' => 'username dan password wajib diisi.',
                 ]);
         }
 
@@ -43,7 +43,7 @@ class AuthController extends BaseController
                 ->setStatusCode(401)
                 ->setJSON([
                     'status'  => false,
-                    'message' => 'Username atau password salah.',
+                    'message' => 'username atau password salah.',
                 ]);
         }
 
@@ -53,7 +53,7 @@ class AuthController extends BaseController
                 ->setStatusCode(401)
                 ->setJSON([
                     'status'  => false,
-                    'message' => 'Username atau password salah.',
+                    'message' => 'username atau password salah.',
                 ]);
         }
 
@@ -67,7 +67,6 @@ class AuthController extends BaseController
             'user_id'      => $user['id'],
             'role_id'      => $user['role_id'],
             'instansi_id'  => $user['instansi_id'],
-            'nama'         => $user['nama'],
             'username'     => $user['username'],
         ]);
 
@@ -80,7 +79,6 @@ class AuthController extends BaseController
                     'user_id'     => $user['id'],
                     'role_id'     => $user['role_id'],
                     'instansi_id' => $user['instansi_id'],
-                    'nama'        => $user['nama'],
                     'username'    => $user['username'],
                 ],
             ]);
