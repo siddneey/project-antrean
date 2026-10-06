@@ -30,10 +30,19 @@ class SubdisplayService
             throw new RuntimeException('ID grup tidak valid.');
         }
 
-        // Pastikan grup ada.
+        /*
+         * ---------------------------------------------------------------------
+         * Validasi grup
+         * ---------------------------------------------------------------------
+         */
+
         $grup = $this->dbPusat
             ->table('grup g')
-            ->select('g.id, g.kelompok_id, g.nama_grup')
+            ->select(
+                'g.id,
+                 g.kelompok_id,
+                 g.nama_grup'
+            )
             ->where('g.id', $grupId)
             ->get()
             ->getRowArray();
@@ -42,20 +51,37 @@ class SubdisplayService
             throw new RuntimeException('Grup tidak ditemukan.');
         }
 
-        // Ambil seluruh instansi dalam grup.
+        /*
+         * ---------------------------------------------------------------------
+         * Ambil seluruh instansi dalam grup
+         * ---------------------------------------------------------------------
+         */
+
         $instansi = $this->dbPusat
             ->table('instansi i')
             ->select(
-                'i.id, i.grup_id, i.nama_instansi, i.logo'
+                'i.id,
+                 i.grup_id,
+                 i.nama_instansi,
+                 i.logo'
             )
             ->where('i.grup_id', $grupId)
             ->orderBy('i.id', 'ASC')
             ->get()
             ->getResultArray();
 
+        /*
+         * Jika grup tidak memiliki instansi,
+         * tetap kembalikan struktur response yang konsisten.
+         */
+
         if (empty($instansi)) {
             return [
-                'grup'     => $grup,
+                'grup' => [
+                    'id'          => (int) $grup['id'],
+                    'kelompok_id' => (int) $grup['kelompok_id'],
+                    'nama_grup'   => $grup['nama_grup'],
+                ],
                 'instansi' => [],
             ];
         }
@@ -66,11 +92,16 @@ class SubdisplayService
         );
 
         /*
-         * Ambil panggilan terbaru untuk masing-masing instansi.
+         * ---------------------------------------------------------------------
+         * Ambil panggilan PANGGIL terbaru untuk instansi dalam grup
+         * ---------------------------------------------------------------------
          *
-         * Kita tidak mengambil satu panggilan global saja,
-         * karena satu grup dapat memiliki beberapa instansi.
+         * Hanya panggilan yang terkait antrean HARI INI yang dipakai.
+         *
+         * Ini mencegah panggilan dari hari sebelumnya muncul
+         * sebagai latest_call ketika hari sudah berganti.
          */
+
         $panggilan = $this->dbLayanan
             ->table('riwayat_panggilan rp')
             ->select(
@@ -87,7 +118,8 @@ class SubdisplayService
             )
             ->join(
                 'riwayat_layanan rl',
-                'rl.id = rp.riwayat_layanan_id'
+                'rl.id = rp.riwayat_layanan_id',
+                'inner'
             )
             ->where('rp.aksi', 'PANGGIL')
             ->whereIn('rl.instansi_id', $instansiIds)
@@ -96,27 +128,25 @@ class SubdisplayService
             ->getResultArray();
 
         /*
-         * Index panggilan berdasarkan instansi.
-         * Satu instansi hanya ditampilkan panggilan terakhirnya.
+         * ---------------------------------------------------------------------
+         * Ambil antrean yang relevan
+         * ---------------------------------------------------------------------
+         *
+         * Daripada langsung mempercayai panggilan terbaru, kita validasi
+         * antrean tersebut melalui DB antrean dan hanya menerima antrean
+         * dengan tanggal_antrean hari ini.
          */
-        $latestByInstansi = [];
 
-        foreach ($panggilan as $row) {
-            $instansiId = (int) $row['instansi_id'];
-
-            if (!isset($latestByInstansi[$instansiId])) {
-                $latestByInstansi[$instansiId] = $row;
-            }
-        }
-
-        /*
-         * Ambil nomor antrean dari DB antrean.
-         */
         $antreanIds = [];
 
-        foreach ($latestByInstansi as $row) {
-            $antreanIds[] = (int) $row['antrean_id'];
+        foreach ($panggilan as $row) {
+          
+        $antreanIds[] = (int) $row['antrean_id'];
         }
+
+        $antreanIds = array_values(
+            array_unique($antreanIds)
+        );
 
         $antreanMap = [];
 
@@ -132,6 +162,10 @@ class SubdisplayService
                      waktu_ambil'
                 )
                 ->whereIn('id', $antreanIds)
+                ->where(
+                    'tanggal_antrean',
+                    date('Y-m-d')
+                )
                 ->get()
                 ->getResultArray();
 
@@ -141,8 +175,38 @@ class SubdisplayService
         }
 
         /*
-         * Gabungkan data instansi + panggilan + antrean.
+         * ---------------------------------------------------------------------
+         * Tentukan panggilan terbaru untuk masing-masing instansi
+         * ---------------------------------------------------------------------
+         *
+         * Karena $panggilan sudah diurutkan DESC berdasarkan ID,
+         * panggilan pertama yang ditemukan untuk suatu instansi
+         * adalah panggilan terbaru.
+         *
+         * Hanya panggilan yang memiliki antrean hari ini yang dimasukkan.
          */
+
+        $latestByInstansi = [];
+
+        foreach ($panggilan as $row) {
+            $instansiId = (int) $row['instansi_id'];
+            $antreanId  = (int) $row['antrean_id'];
+
+            if (!isset($antreanMap[$antreanId])) {
+                continue;
+            }
+
+            if (!isset($latestByInstansi[$instansiId])) {
+                $latestByInstansi[$instansiId] = $row;
+            }
+        }
+
+        /*
+         * ---------------------------------------------------------------------
+         * Gabungkan data instansi + latest call
+         * ---------------------------------------------------------------------
+         */
+
         $result = [];
 
         foreach ($instansi as $item) {
@@ -162,7 +226,7 @@ class SubdisplayService
                 $antreanId = (int) $call['antrean_id'];
                 $antrean   = $antreanMap[$antreanId] ?? null;
 
-                if ($antrean) {
+                if ($antrean !== null) {
                     $dataInstansi['latest_call'] = [
                         'riwayat_panggilan_id'
                             => (int) $call['riwayat_panggilan_id'],
@@ -208,11 +272,17 @@ class SubdisplayService
             $result[] = $dataInstansi;
         }
 
+        /*
+         * ---------------------------------------------------------------------
+         * Response
+         * ---------------------------------------------------------------------
+         */
+
         return [
-            'grup'     => [
-                'id'           => (int) $grup['id'],
-                'kelompok_id'  => (int) $grup['kelompok_id'],
-                'nama_grup'    => $grup['nama_grup'],
+            'grup' => [
+                'id'          => (int) $grup['id'],
+                'kelompok_id' => (int) $grup['kelompok_id'],
+                'nama_grup'   => $grup['nama_grup'],
             ],
             'instansi' => $result,
         ];
